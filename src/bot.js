@@ -1,17 +1,26 @@
 const TelegramBot = require('node-telegram-bot-api');
 const axios = require('axios');
+require('dotenv').config();
 const express = require('express');
-const stream = require('stream');
-const { promisify } = require('util');
+//const stream = require('stream');
+//const { promisify } = require('util');
+const moment = require('moment');
+const schedule = require('node-schedule');
 const path = require('path');
 const csv = require('csv-parser');
 const xlsx = require('xlsx');
-const sqlite3 = require('sqlite3').verbose();
 const bodyParser = require('body-parser');
 const fs = require('fs');
 const multer = require('multer');
-const config = require('./config.json');
+const config = require('../config.json');
 const authKeys = config.authKeys;
+
+const { connectToDB } = require('./services/database');
+const { addUser, getAllUsers } = require('./services/userModel');
+
+connectToDB().then(() => {
+    console.log('MongoDB connected');
+}).catch(err => console.error('Failed to connect to MongoDB', err));
 
 const uploadDir = 'uploads/';
 fs.mkdirSync(uploadDir, { recursive: true });
@@ -69,9 +78,25 @@ bot.setMyCommands(commands).then(() => {
     console.error('Ошибка при установке команд:', error);
 });
 
-bot.onText(/\/start/, (msg) => {
+bot.onText(/\/start/, async (msg) => {
     const chatId = msg.chat.id;
+    await addUser(chatId);
     bot.sendMessage(chatId, 'Авторизуйтесь пожалуйста, нажмите на команду /auth');
+});
+
+bot.onText(/\/mail (.+)/, async (msg, match) => {
+    const chatId = msg.chat.id;
+    if (!authorizedUsers[chatId]) {
+        return bot.sendMessage(chatId, 'Вы не авторизованы для этой команды.');
+    }
+
+    const text = match[1];
+    const users = await getAllUsers();
+    users.forEach(user => {
+        bot.sendMessage(user.userId, text).catch(error => console.error(`Не удалось отправить сообщение пользователю ${user.userId}:`, error));
+    });
+
+    bot.sendMessage(chatId, 'Сообщения отправлены.');
 });
 
 let awaitingAuthKey = {};
